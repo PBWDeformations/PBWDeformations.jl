@@ -535,3 +535,60 @@ function arcdiag_to_deformationmap_entry(
     end
     return entry
 end
+
+function is_in_expected_form(A::ArcDiagramDirected; case::Symbol=:unknown)
+    ### lower part crossing free
+    is_crossing_free(A, part=:lower) || return false
+    ###
+
+    ### if first arc goes from upper to lower, it goes to the first lower vertex
+    if n_upper_vertices(A) >= 1
+        first_neigh = outneighbor(A, upper_vertex(A, 1))
+        if is_lower_vertex(first_neigh) && vertex_index(first_neigh) != 1
+            return false
+        end
+    end
+    ###
+    if case == :exterior_power && n_upper_vertices(A) >= 1
+        first_neigh_right = outneighbor(A, upper_vertex(A, div(n_upper_vertices(A), 2) + 1))
+        if is_lower_vertex(first_neigh_right) && vertex_index(first_neigh_right) == 1
+            return false
+        end
+    end
+    ###
+
+    ### lower part cycles in the end and desc sorted by length
+    n_lower_pairs = div(n_lower_vertices(A), 2)
+    lower_loop_lengths = fill(typemin(Int), n_lower_pairs)
+    for i in 1:n_lower_pairs
+        lower_loop_lengths[i] != typemin(Int) && continue
+        loop_inds = [i]
+        start_v = lower_vertex(A, 2i-1)
+        curr_v = outneighbor(A, lower_vertex(A, 2i))
+        contains_upper = false
+        while curr_v != start_v
+            if is_upper_vertex(curr_v)
+                contains_upper = true
+                break
+            end
+            curr_v_ind = vertex_index(curr_v) + 1
+            push!(loop_inds, div(curr_v_ind, 2))
+            curr_v = outneighbor(A, lower_vertex(A, curr_v_ind))
+        end
+        issorted(loop_inds) || return false
+        length(loop_inds) == maximum(loop_inds) - minimum(loop_inds) + 1 || return false
+        if contains_upper
+            for i in loop_inds
+                lower_loop_lengths[i] = typemax(Int)
+            end
+        else
+            for i in loop_inds
+                lower_loop_lengths[i] = length(loop_inds)
+            end
+        end
+    end
+    issorted(lower_loop_lengths; rev=true) || return false
+    ###
+
+    return true
+end

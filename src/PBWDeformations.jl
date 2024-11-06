@@ -100,6 +100,8 @@ export lower_vertex, is_lower_vertex
 export lower_vertices
 export matrix_repr_basis
 export n_edges
+export n_lower_vertices
+export n_upper_vertices
 export n_vertices
 export neighbor
 export neighbors
