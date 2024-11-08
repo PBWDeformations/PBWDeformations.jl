@@ -17,13 +17,14 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
         sp::SmashProductLie{C, LieC, LieT},
         degs::AbstractVector{Int};
         no_normalize::Bool=false,
+        check_all_diagrams::Bool=false,
     ) where {C <: RingElem, LieC <: FieldElem, LieT <: LieAlgebraElem{LieC}}
         LieType = get_attribute(base_lie_algebra(sp), :type, nothing)::Union{Nothing,Symbol}
         @req LieType in [:special_orthogonal, :general_linear] "Only works for so_n and gl_n."
         if LieType == :special_orthogonal && has_attribute(base_lie_algebra(sp), :form)
             @req isone(get_attribute(base_lie_algebra(sp), :form)::dense_matrix_type(C)) "Only works for so_n represented as skew-symmetric matrices."
         end
-        return ArcDiagDeformBasis(Val(LieType), sp, degs; no_normalize)
+        return ArcDiagDeformBasis(Val(LieType), sp, degs; no_normalize, check_all_diagrams)
     end
 
     function ArcDiagDeformBasis(
@@ -31,6 +32,7 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
         sp::SmashProductLie{C, LieC, LieT},
         degs::AbstractVector{Int};
         no_normalize::Bool=false,
+        check_all_diagrams::Bool=false,
     ) where {C <: RingElem, LieC <: FieldElem, LieT <: LieAlgebraElem{LieC}}
         V = base_module(sp)
 
@@ -45,11 +47,11 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
 
         extra_data = Dict{DeformationMap{elem_type(sp)}, Set{ArcDiagram}}()
 
-        n_cases = div(length(V_nice_summands) * (length(V_nice_summands) + 1), 2)
+        n_sum_cases = div(length(V_nice_summands) * (length(V_nice_summands) + 1), 2)
         lens = Int[]
         iters = []
         for d in degs
-            case = 0
+            sum_case = 0
             for (i_l, V_nice_summand_i_l) in enumerate(V_nice_summands),
                 (i_r, V_nice_summand_i_r) in enumerate(V_nice_summands)
 
@@ -57,25 +59,27 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
                     continue
                 end
 
-                case += 1
+                sum_case += 1
 
                 proj_to_summand_l = compose(h, canonical_projection(V_nice, i_l))
                 proj_to_summand_r = compose(h, canonical_projection(V_nice, i_r))
 
-                W = if i_l == i_r
-                    exterior_power_obj(V_nice_summand_i_l, 2)
+                if i_l == i_r
+                    W = exterior_power_obj(V_nice_summand_i_l, 2)
+                    case = :exterior_power
                 else
-                    tensor_product(V_nice_summand_i_l, V_nice_summand_i_r)
+                    W = tensor_product(V_nice_summand_i_l, V_nice_summand_i_r)
+                    case = :tensor_product
                 end
 
                 diag_iter = pbw_arc_diagrams(LieType, W, d)
                 len = length(diag_iter)
-                prog_meter = ProgressMeter.Progress(len; output=stderr, enabled=true, desc="Basis generation: deg $d, case $(case)/$(n_cases)")
+                prog_meter = ProgressMeter.Progress(len; output=stderr, enabled=true, desc="Basis generation: deg $d, case $(sum_case)/$(n_sum_cases)")
                 generate_showvalues(counter, diag) = () -> [("iteration", (counter, diag))]
                 iter = (
                     begin
-                        # @vprintln :PBWDeformations 2 "Basis generation deg $(lpad(d, maximum(ndigits, degs))), case $(lpad(case, ndigits(n_cases)))/$(n_cases), $(lpad(floor(Int, 100*counter / len), 3))%, $(lpad(counter, ndigits(len)))/$(len)"
-                        _basis_elem = arcdiag_to_deformationmap(LieType, diag, sp, W)
+                        # @vprintln :PBWDeformations 2 "Basis generation deg $(lpad(d, maximum(ndigits, degs))), case $(lpad(sum_case, ndigits(n_sum_cases)))/$(n_sum_cases), $(lpad(floor(Int, 100*counter / len), 3))%, $(lpad(counter, ndigits(len)))/$(len)"
+                        _basis_elem = arcdiag_to_deformationmap(LieType, diag, sp, W, case)
                         basis_elem = matrix(proj_to_summand_l) * _basis_elem * transpose(matrix(proj_to_summand_r))
                         if i_l != i_r
                             basis_elem -= transpose(basis_elem)
@@ -92,7 +96,7 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
                         end
                         ProgressMeter.update!(prog_meter, counter; showvalues = generate_showvalues(counter, diag))
                         basis_elem
-                    end for (counter, diag) in enumerate(diag_iter) if is_crossing_free(diag, part=:lower)
+                    end for (counter, diag) in enumerate(diag_iter) if check_all_diagrams || is_in_canonical_form_for_deformation(diag; case)
                 )
                 # push!(lens, len)
                 # push!(iters, iter)
@@ -399,8 +403,9 @@ function arcdiag_to_deformationmap(
     diag::ArcDiagramDirected,
     sp::SmashProductLie{C},
     W::LieAlgebraModule=exterior_power_obj(base_module(sp), 2),
+    case::Symbol=:exterior_power
 ) where {C <: RingElem}
-    return arcdiag_to_deformationmap(T, arc_diagram(Undirected, diag), sp, W)
+    return arcdiag_to_deformationmap(T, arc_diagram(Undirected, diag), sp, W, case)
 end
 
 function arcdiag_to_deformationmap(
@@ -408,6 +413,7 @@ function arcdiag_to_deformationmap(
     diag::ArcDiagramUndirected,
     sp::SmashProductLie{C},
     W::LieAlgebraModule=exterior_power_obj(base_module(sp), 2),
+    case::Symbol=:exterior_power
 ) where {C <: RingElem}
     @req !_is_direct_sum(W)[1] "Not permitted for direct sums."
     ind_map = basis_index_mapping(W)
@@ -416,15 +422,17 @@ function arcdiag_to_deformationmap(
 
     iso_pair_to_L = arc_diagram_lower_pair_to_L(T, dim_stdmod_V)
 
-    case = :unknown
-
-    if ((fl, Wbase, k) = _is_exterior_power(W); fl)
+    if case == :exterior_power
+        fl, Wbase, k = _is_exterior_power(W)
+        @assert fl
         @assert k == 2
         nrows_kappa = ncols_kappa = dim(Wbase)
-        case = :exterior_power
-    elseif ((fl, W_factors) = _is_tensor_product(W); fl)
+    elseif case == :tensor_product
+        fl, W_factors = _is_tensor_product(W)
+        @assert fl
         nrows_kappa, ncols_kappa = dim.(W_factors)
-        case = :tensor_product
+    else
+        error("Unknown case")
     end
 
     kappa = zero_matrix(sp, nrows_kappa, ncols_kappa)
@@ -536,20 +544,14 @@ function arcdiag_to_deformationmap_entry(
     return entry
 end
 
-function is_in_expected_form(A::ArcDiagramDirected; case::Symbol=:unknown)
-    ### lower part crossing free
-    is_crossing_free(A, part=:lower) || return false
-    ###
-
+function is_in_canonical_form_for_deformation(A::ArcDiagramDirected; case::Symbol=:unknown)
     ### if first arc goes from upper to lower, it goes to the first lower vertex
-    if n_upper_vertices(A) >= 1
-        first_neigh = outneighbor(A, upper_vertex(A, 1))
-        if is_lower_vertex(first_neigh) && vertex_index(first_neigh) != 1
-            return false
-        end
+    first_neigh = outneighbor(A, upper_vertex(A, 1))
+    if is_lower_vertex(first_neigh) && vertex_index(first_neigh) != 1
+        return false
     end
     ###
-    if case == :exterior_power && n_upper_vertices(A) >= 1
+    if case == :exterior_power
         first_neigh_right = outneighbor(A, upper_vertex(A, div(n_upper_vertices(A), 2) + 1))
         if is_lower_vertex(first_neigh_right) && vertex_index(first_neigh_right) == 1
             return false
@@ -574,6 +576,58 @@ function is_in_expected_form(A::ArcDiagramDirected; case::Symbol=:unknown)
             curr_v_ind = vertex_index(curr_v) + 1
             push!(loop_inds, div(curr_v_ind, 2))
             curr_v = outneighbor(A, lower_vertex(A, curr_v_ind))
+        end
+        issorted(loop_inds) || return false
+        length(loop_inds) == maximum(loop_inds) - minimum(loop_inds) + 1 || return false
+        if contains_upper
+            for i in loop_inds
+                lower_loop_lengths[i] = typemax(Int)
+            end
+        else
+            for i in loop_inds
+                lower_loop_lengths[i] = length(loop_inds)
+            end
+        end
+    end
+    issorted(lower_loop_lengths; rev=true) || return false
+    ###
+
+    return true
+end
+
+function is_in_canonical_form_for_deformation(A::ArcDiagramUndirected; case::Symbol=:unknown)
+    ### if first arc goes from upper to lower, it goes to the first lower vertex
+    first_neigh = neighbor(A, upper_vertex(A, 1))
+    if is_lower_vertex(first_neigh) && vertex_index(first_neigh) != 1
+        return false
+    end
+    ###
+    if case == :exterior_power
+        first_neigh_right = neighbor(A, upper_vertex(A, div(n_upper_vertices(A), 2) + 1))
+        if is_lower_vertex(first_neigh_right) && vertex_index(first_neigh_right) == 1
+            return false
+        end
+    end
+    ###
+
+    ### lower part cycles in the end and desc sorted by length
+    n_lower_pairs = div(n_lower_vertices(A), 2)
+    lower_loop_lengths = fill(typemin(Int), n_lower_pairs)
+    for i in 1:n_lower_pairs
+        lower_loop_lengths[i] != typemin(Int) && continue
+        loop_inds = [i]
+        start_v = lower_vertex(A, 2i-1)
+        curr_v = neighbor(A, lower_vertex(A, 2i))
+        contains_upper = false
+        while curr_v != start_v
+            if is_upper_vertex(curr_v)
+                contains_upper = true
+                break
+            end
+            curr_v_ind = vertex_index(curr_v) + 1
+            isodd(curr_v_ind) && return false
+            push!(loop_inds, div(curr_v_ind, 2))
+            curr_v = neighbor(A, lower_vertex(A, curr_v_ind))
         end
         issorted(loop_inds) || return false
         length(loop_inds) == maximum(loop_inds) - minimum(loop_inds) + 1 || return false
