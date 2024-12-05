@@ -72,7 +72,7 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
                     case = :tensor_product
                 end
 
-                diag_iter = pbw_arc_diagrams(LieType, W, d)
+                diag_iter = pbw_arc_diagrams(LieType, W, d; case, check_all_diagrams)
                 len = length(diag_iter)
                 prog_meter = ProgressMeter.Progress(len; output=stderr, enabled=true, desc="Basis generation: deg $d, case $(sum_case)/$(n_sum_cases)")
                 generate_showvalues(counter, diag) = () -> [("iteration", (counter, diag))]
@@ -130,12 +130,22 @@ end
 Base.length(basis::ArcDiagDeformBasis) = basis.len
 
 
-function pbw_arc_diagrams(T::Union{SO, GL}, V::LieAlgebraModule, d::Int)
+function pbw_arc_diagrams(T::Union{SO, GL}, V::LieAlgebraModule, d::Int; case::Symbol=:unknown, check_all_diagrams::Bool=false)
     upper_verts = arc_diagram_upper_points(T, V)
     lower_verts = arc_diagram_lower_points(T, V, d)
     upper_iss = arc_diagram_upper_iss(T, V)
     lower_iss = arc_diagram_lower_iss(T, V, d)
     indep_sets = Vector{Int}[[(-1) .* is for is in upper_iss]; [is for is in lower_iss]]
+    if !check_all_diagrams
+        ### if first arc goes from upper to lower, it goes to the first lower vertex
+        for i in 2:arc_diagram_num_lower_points(T, V, d)
+            push!(indep_sets, [-1, i])
+        end
+        if case == :exterior_power && d > 0
+            ### first arc from upper right part may not got to the first lower vertex -> swap upper parts instead
+            push!(indep_sets, [-(div(arc_diagram_num_upper_points(T, V), 2) + 1), 1])
+        end
+    end
     return all_arc_diagrams(arc_diagram_type(T), upper_verts, lower_verts; indep_sets)
 end
 
@@ -552,6 +562,7 @@ function is_in_canonical_form_for_deformation(A::ArcDiagramDirected; case::Symbo
     end
     ###
     if case == :exterior_power
+        # first arc from upper right part may not got to the first lower vertex -> swap upper parts instead
         first_neigh_right = outneighbor(A, upper_vertex(A, div(n_upper_vertices(A), 2) + 1))
         if is_lower_vertex(first_neigh_right) && vertex_index(first_neigh_right) == 1
             return false
@@ -603,6 +614,7 @@ function is_in_canonical_form_for_deformation(A::ArcDiagramUndirected; case::Sym
     end
     ###
     if case == :exterior_power
+        # first arc from upper right part may not got to the first lower vertex -> swap upper parts instead
         first_neigh_right = neighbor(A, upper_vertex(A, div(n_upper_vertices(A), 2) + 1))
         if is_lower_vertex(first_neigh_right) && vertex_index(first_neigh_right) == 1
             return false
