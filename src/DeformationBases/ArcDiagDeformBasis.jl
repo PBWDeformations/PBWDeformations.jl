@@ -103,6 +103,7 @@ struct ArcDiagDeformBasis{T <: SmashProductLieElem} <: DeformBasis{T}
                 collected = collect(iter)
                 push!(lens, length(collected))
                 push!(iters, collected)
+                ProgressMeter.finish!(prog_meter)
             end
         end
         len = sum(lens)
