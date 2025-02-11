@@ -146,6 +146,7 @@ include("SmashProductLieDeform.jl")
 include("SmashProductPBWDeformLie.jl")
 include("ArcDiagram.jl")
 include("Pseudograph.jl")
+include("GlnGraph.jl")
 
 include("DeformationBases/ArcDiagDeformBasis.jl")
 include("DeformationBases/PseudographDeformBasis.jl")

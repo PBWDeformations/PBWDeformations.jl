@@ -1,3 +1,7 @@
+function parity_diff(v::BitVector)
+    return 2 * sum(v) - length(v)
+end
+
 function symmetrize(f::FreeAssociativeAlgebraElem)
     R = parent(f)
     g = zero(R)

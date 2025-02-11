@@ -709,11 +709,6 @@ function iter_possible_adjacencies_undir(
     end
 end
 
-
-function parity_diff(v::BitVector)
-    return 2 * sum(v) - length(v)
-end
-
 function all_arc_diagrams(
     ::Type{Directed},
     n_upper_verts::Int,
